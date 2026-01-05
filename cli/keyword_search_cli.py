@@ -2,12 +2,16 @@
 
 import argparse, json
 from search_function import search_function
+from inverted_index import InvertedIndex
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Keyword Search CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     search_parser = subparsers.add_parser("search", help="Search movies using BM25")
     search_parser.add_argument("query", type=str, help="Search query")
+
+    build_parser = subparsers.add_parser("build", help="Build the movie database inverted index")
 
     args = parser.parse_args()
 
@@ -17,6 +21,13 @@ def main() -> None:
             results = search_function(args.query)
             for key,value in enumerate(results[:5], 1):
                 print(key, value["title"])
+
+        case "build":
+            inverted = InvertedIndex()
+            inverted.build()
+            inverted.save()
+             
+
         case _:
             parser.print_help()
 
