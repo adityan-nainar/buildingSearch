@@ -1,59 +1,105 @@
 import argparse
-from lib.hybrid_search import hybrid_search
+
+from lib.hybrid_search import (
+    normalize_scores,
+    rrf_search_command,
+    weighted_search_command,
+)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hybrid Search CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    normalize_parser = subparsers.add_parser("normalize", help = "normalize vectors")
-    normalize_parser.add_argument("scores", type = float, nargs="+")
+    normalize_parser = subparsers.add_parser(
+        "normalize", help="Normalize a list of scores"
+    )
+    normalize_parser.add_argument(
+        "scores", nargs="+", type=float, help="List of scores to normalize"
+    )
 
-    weighted_parser = subparsers.add_parser("weighted-search", help = "weighted search")
-    weighted_parser.add_argument("query", type=str, help = "query for searching")
-    weighted_parser.add_argument("--alpha", type=float, help = "weight of the hybrid search, 1 is 100% keyword, 0 is 100% Semantic")
-    weighted_parser.add_argument("--limit", type=int, help = "query for searching")
+    weighted_parser = subparsers.add_parser(
+        "weighted-search", help="Perform weighted hybrid search"
+    )
+    weighted_parser.add_argument("query", type=str, help="Search query")
+    weighted_parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.5,
+        help="Weight for BM25 vs semantic (0=all semantic, 1=all BM25, default=0.5)",
+    )
+    weighted_parser.add_argument(
+        "--limit", type=int, default=5, help="Number of results to return (default=5)"
+    )
 
-    rrf_parser = subparsers.add_parser("rrf-search", help="RRF hybrid search")
+    rrf_parser = subparsers.add_parser(
+        "rrf-search", help="Perform Reciprocal Rank Fusion search"
+    )
     rrf_parser.add_argument("query", type=str, help="Search query")
-    rrf_parser.add_argument("-k", type=int, default=60, help="RRF constant k")
-    rrf_parser.add_argument("--limit", type=int, default=5, help="Number of results")
-
+    rrf_parser.add_argument(
+        "-k",
+        type=int,
+        default=60,
+        help="RRF k parameter controlling weight distribution (default=60)",
+    )
+    rrf_parser.add_argument(
+        "--limit", type=int, default=5, help="Number of results to return (default=5)"
+    )
+    rrf_parser.add_argument(
+    "--enhance",
+    type=str,
+    choices=["spell"],
+    help="Query enhancement method",
+)
 
     args = parser.parse_args()
+
     match args.command:
         case "normalize":
-            num_list = args.scores
-            minn = min(num_list)
-            maxx = max(num_list)
-            if minn==maxx:
-                for i in range(len(num_list)):
-                    print(1.0)
-            else:
-                for score in num_list:
-                    new_score = (score-minn)/(maxx-minn)
-                    print(f"* {new_score:.4f}")
-
+            normalized = normalize_scores(args.scores)
+            for score in normalized:
+                print(f"* {score:.4f}")
         case "weighted-search":
-            results = hybrid_search(args.query, args.alpha, args.limit)
-            # Format the output as requested
-            for i, res in enumerate(results, 1):
-                print(f"{i}. {res['title']}")
-                print(f"   Hybrid Score: {res['hybrid_score']:.3f}")
-                print(f"   BM25: {res['bm25_score']:.3f}, Semantic: {res['semantic_score']:.3f}")
-                print(f"   {res['description'][:100]}...") # Truncate description for display
+            result = weighted_search_command(args.query, args.alpha, args.limit)
 
-        case "rrf-search":
-            from lib.hybrid_search import rrf_search_helper
-            results = rrf_search_helper(args.query, args.k, args.limit)
-            for i, res in enumerate(results, 1):
+            print(
+                f"Weighted Hybrid Search Results for '{result['query']}' (alpha={result['alpha']}):"
+            )
+            print(
+                f"  Alpha {result['alpha']}: {int(result['alpha'] * 100)}% Keyword, {int((1 - result['alpha']) * 100)}% Semantic"
+            )
+            for i, res in enumerate(result["results"], 1):
                 print(f"{i}. {res['title']}")
-                print(f"   RRF Score: {res['rrf_score']:.4f}")
-                bm25_rank = res['bm25_rank'] if res['bm25_rank'] else "N/A"
-                semantic_rank = res['semantic_rank'] if res['semantic_rank'] else "N/A"
-                print(f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}")
-                print(f"   {res['description'][:100]}...")
-                
-        case _: 
+                print(f"   Hybrid Score: {res.get('score', 0):.3f}")
+                metadata = res.get("metadata", {})
+                if "bm25_score" in metadata and "semantic_score" in metadata:
+                    print(
+                        f"   BM25: {metadata['bm25_score']:.3f}, Semantic: {metadata['semantic_score']:.3f}"
+                    )
+                print(f"   {res['document'][:100]}...")
+                print()
+        case "rrf-search":
+            # Pass args.enhance to the command
+            result = rrf_search_command(args.query, args.k, args.limit, args.enhance)
+
+            print(
+                f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):"
+            )
+
+            for i, res in enumerate(result["results"], 1):
+                print(f"{i}. {res['title']}")
+                print(f"   RRF Score: {res.get('score', 0):.3f}")
+                metadata = res.get("metadata", {})
+                ranks = []
+                if metadata.get("bm25_rank"):
+                    ranks.append(f"BM25 Rank: {metadata['bm25_rank']}")
+                if metadata.get("semantic_rank"):
+                    ranks.append(f"Semantic Rank: {metadata['semantic_rank']}")
+                if ranks:
+                    print(f"   {', '.join(ranks)}")
+                print(f"   {res['document'][:100]}...")
+                print()
+        case _:
             parser.print_help()
 
 
