@@ -43,14 +43,20 @@ def main() -> None:
         help="RRF k parameter controlling weight distribution (default=60)",
     )
     rrf_parser.add_argument(
-        "--limit", type=int, default=5, help="Number of results to return (default=5)"
+        "--enhance",
+        type=str,
+        choices=["spell", "expand", "rewrite"],
+        help="Query enhancement method",
     )
     rrf_parser.add_argument(
-    "--enhance",
-    type=str,
-    choices=["spell"],
-    help="Query enhancement method",
-)
+        "--rerank-method",
+        type=str,
+        choices=["individual", "batch", "cross_encoder"],
+        help="Reranking method",
+    )
+    rrf_parser.add_argument(
+        "--limit", type=int, default=5, help="Number of results to return (default=5)"
+    )
 
     args = parser.parse_args()
 
@@ -79,8 +85,19 @@ def main() -> None:
                 print(f"   {res['document'][:100]}...")
                 print()
         case "rrf-search":
-            # Pass args.enhance to the command
-            result = rrf_search_command(args.query, args.k, args.limit, args.enhance)
+            result = rrf_search_command(
+                args.query, args.k, args.enhance, args.rerank_method, args.limit
+            )
+
+            if result["enhanced_query"]:
+                print(
+                    f"Enhanced query ({result['enhance_method']}): '{result['original_query']}' -> '{result['enhanced_query']}'\n"
+                )
+
+            if result["reranked"]:
+                print(
+                    f"Reranking top {len(result['results'])} results using {result['rerank_method']} method...\n"
+                )
 
             print(
                 f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):"
@@ -88,6 +105,14 @@ def main() -> None:
 
             for i, res in enumerate(result["results"], 1):
                 print(f"{i}. {res['title']}")
+                if "individual_score" in res:
+                    print(f"   Rerank Score: {res.get('individual_score', 0):.3f}/10")
+                if "batch_rank" in res:
+                    print(f"   Rerank Rank: {res.get('batch_rank', 0)}")
+                if "crossencoder_score" in res:
+                    print(
+                        f"   Cross Encoder Score: {res.get('crossencoder_score', 0):.3f}"
+                    )
                 print(f"   RRF Score: {res.get('score', 0):.3f}")
                 metadata = res.get("metadata", {})
                 ranks = []

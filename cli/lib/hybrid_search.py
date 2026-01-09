@@ -1,23 +1,18 @@
 import os
+from typing import Optional
 
 from .keyword_search import InvertedIndex
+from .query_enhancement import enhance_query
+from .reranking import rerank
 from .search_utils import (
     DEFAULT_ALPHA,
     DEFAULT_SEARCH_LIMIT,
     RRF_K,
+    SEARCH_MULTIPLIER,
     format_search_result,
     load_movies,
 )
 from .semantic_search import ChunkedSemanticSearch
-
-from dotenv import load_dotenv
-from google import genai
-
-load_dotenv()
-api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
-model = "gemini-2.0-flash-001"
-
 
 
 class HybridSearch:
@@ -211,37 +206,34 @@ def weighted_search_command(
 def rrf_search_command(
     query: str,
     k: int = RRF_K,
+    enhance: Optional[str] = None,
+    rerank_method: Optional[str] = None,
     limit: int = DEFAULT_SEARCH_LIMIT,
-    enhance: str = None  # Add the enhance parameter
 ) -> dict:
     movies = load_movies()
     searcher = HybridSearch(movies)
+
     original_query = query
-    enhanced_query = query
+    enhanced_query = None
+    if enhance:
+        enhanced_query = enhance_query(query, method=enhance)
+        query = enhanced_query
 
-    if enhance == "spell":
-        # System prompt for spell correction
-        prompt = f"""Fix any spelling errors in this movie search query.
+    search_limit = limit * SEARCH_MULTIPLIER if rerank_method else limit
+    results = searcher.rrf_search(query, k, search_limit)
 
-                    Only correct obvious typos. Don't change correctly spelled words.
-
-                    Query: "{query}"
-
-                    If no errors, return the original query.
-                    Corrected:"""
-        
-        # Replace this with your actual LLM call logic
-        enhanced_query = client.models.generate_content(model=model, contents=prompt).text
-        
-        # For now, if enhanced, print the notification as requested
-        if enhanced_query.lower() != original_query.lower():
-            print(f"Enhanced query (spell): '{original_query}' -> '{enhanced_query}'\n")
-
-    results = searcher.rrf_search(enhanced_query, k, limit)
+    reranked = False
+    if rerank_method:
+        results = rerank(query, results, method=rerank_method, limit=limit)
+        reranked = True
 
     return {
         "original_query": original_query,
-        "query": enhanced_query,
+        "enhanced_query": enhanced_query,
+        "enhance_method": enhance,
+        "query": query,
         "k": k,
+        "rerank_method": rerank_method,
+        "reranked": reranked,
         "results": results,
     }
