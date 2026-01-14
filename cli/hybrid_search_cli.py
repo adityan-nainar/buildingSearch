@@ -6,6 +6,8 @@ from lib.hybrid_search import (
     weighted_search_command,
 )
 
+from lib.reranking import evaluate
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hybrid Search CLI")
@@ -32,32 +34,13 @@ def main() -> None:
         "--limit", type=int, default=5, help="Number of results to return (default=5)"
     )
 
-    rrf_parser = subparsers.add_parser(
-        "rrf-search", help="Perform Reciprocal Rank Fusion search"
-    )
+    rrf_parser = subparsers.add_parser("rrf-search", help="Perform Reciprocal Rank Fusion search")
     rrf_parser.add_argument("query", type=str, help="Search query")
-    rrf_parser.add_argument(
-        "-k",
-        type=int,
-        default=60,
-        help="RRF k parameter controlling weight distribution (default=60)",
-    )
-    rrf_parser.add_argument(
-        "--enhance",
-        type=str,
-        choices=["spell", "expand", "rewrite"],
-        help="Query enhancement method",
-    )
-    rrf_parser.add_argument(
-        "--rerank-method",
-        type=str,
-        choices=["individual", "batch", "cross_encoder"],
-        help="Reranking method",
-    )
-    rrf_parser.add_argument(
-        "--limit", type=int, default=5, help="Number of results to return (default=5)"
-    )
-
+    rrf_parser.add_argument("-k",type=int,default=60,help="RRF k parameter controlling weight distribution (default=60)",)
+    rrf_parser.add_argument("--enhance",type=str,choices=["spell", "expand", "rewrite"],help="Query enhancement method",)
+    rrf_parser.add_argument("--rerank-method",type=str,choices=["individual", "batch", "cross_encoder"],help="Reranking method",)
+    rrf_parser.add_argument("--limit", type=int, default=5, help="Number of results to return (default=5)")
+    rrf_parser.add_argument("--evaluate", action="store_true", help="Use LLM to evaluate the answer")
     args = parser.parse_args()
 
     match args.command:
@@ -85,6 +68,7 @@ def main() -> None:
                 print(f"   {res['document'][:100]}...")
                 print()
         case "rrf-search":
+            print("using rrf_search")
             result = rrf_search_command(
                 args.query, args.k, args.enhance, args.rerank_method, args.limit
             )
@@ -99,9 +83,7 @@ def main() -> None:
                     f"Reranking top {len(result['results'])} results using {result['rerank_method']} method...\n"
                 )
 
-            print(
-                f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):"
-            )
+            print(f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):")
 
             for i, res in enumerate(result["results"], 1):
                 print(f"{i}. {res['title']}")
@@ -124,6 +106,18 @@ def main() -> None:
                     print(f"   {', '.join(ranks)}")
                 print(f"   {res['document'][:100]}...")
                 print()
+            
+            if args.evaluate:
+                print("--- LLM Quality Evaluation ---")
+                # Call evaluate (ensure it's imported correctly)
+                evaluated_results = evaluate(args.query, result["results"])
+                
+                total_relevance = 0
+                for res in evaluated_results:
+                    score = res.get("llm_eval_score", 0)
+                    total_relevance += score
+                    label = {3: "Highly Relevant", 2: "Relevant", 1: "Marginal", 0: "Not Relevant"}.get(score, "N/A")
+                    print(f"- {res['title']}: {score}/3 ({label})")
         case _:
             parser.print_help()
 

@@ -61,15 +61,15 @@ def llm_rerank_batch(query: str, documents: list[dict], limit: int = 5) -> list[
 
     prompt = f"""Rank these movies by relevance to the search query.
 
-Query: "{query}"
+            Query: "{query}"
 
-Movies:
-{doc_list_str}
+            Movies:
+            {doc_list_str}
 
-Return ONLY the IDs in order of relevance (best match first). Return a valid JSON list, nothing else. For example:
+            Return ONLY the IDs in order of relevance (best match first). Return a valid JSON list, nothing else. For example:
 
-[75, 12, 34, 2, 1]
-"""
+            [75, 12, 34, 2, 1]
+                """
 
     response = client.models.generate_content(model=model, contents=prompt)
     ranking_text = (response.text or "").strip()
@@ -87,6 +87,7 @@ Return ONLY the IDs in order of relevance (best match first). Return a valid JSO
 def cross_encoder_rerank(
     query: str, documents: list[dict], limit: int = 5
 ) -> list[dict]:
+    print("cross encoder function")
     pairs = []
     for doc in documents:
         pairs.append([query, f"{doc.get('title', '')} - {doc.get('document', '')}"])
@@ -97,17 +98,56 @@ def cross_encoder_rerank(
         doc["crossencoder_score"] = float(score)
 
     documents.sort(key=lambda x: x["crossencoder_score"], reverse=True)
+    for doc in documents:
+        print(doc["title"])
+        print(doc["metadata"])
     return documents[:limit]
 
 
 def rerank(
     query: str, documents: list[dict], method: str = "batch", limit: int = 5
 ) -> list[dict]:
+    print("rerank function")
     if method == "individual":
         return llm_rerank_individual(query, documents, limit)
     if method == "batch":
         return llm_rerank_batch(query, documents, limit)
     if method == "cross_encoder":
+        print("cross_encoder call")
         return cross_encoder_rerank(query, documents, limit)
     else:
         return documents[:limit]
+
+def evaluate(query, results):
+    # Prepare the text for the LLM
+    docs_to_score = [
+        f"{res.get('title')} - {res.get('document')[:200]}" 
+        for res in results
+    ]
+
+    prompt = f"""Rate how relevant each result is to this query on a 0-3 scale:
+            Query: "{query}"
+            Results:
+            {chr(10).join(docs_to_score)}
+
+            Scale:
+            - 3: Highly relevant
+            - 2: Relevant
+            - 1: Marginally relevant
+            - 0: Not relevant
+
+            Return ONLY a valid JSON list of integers. Example: [3, 0, 2, 1]"""
+    
+    response = client.models.generate_content(model=model, contents=prompt)
+    # Clean Markdown if present
+    clean_text = response.text.replace("```json", "").replace("```", "").strip()
+    
+    try:
+        scores = json.loads(clean_text)
+        # Zip the scores back to the original result dictionaries
+        for res, score in zip(results, scores):
+            res["llm_eval_score"] = score
+        return results
+    except Exception as e:
+        print(f"Evaluation failed: {e}")
+        return results

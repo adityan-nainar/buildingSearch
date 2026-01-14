@@ -210,6 +210,7 @@ def rrf_search_command(
     rerank_method: Optional[str] = None,
     limit: int = DEFAULT_SEARCH_LIMIT,
 ) -> dict:
+    print("rrf_Search_command: ")
     movies = load_movies()
     searcher = HybridSearch(movies)
 
@@ -223,10 +224,11 @@ def rrf_search_command(
     results = searcher.rrf_search(query, k, search_limit)
 
     reranked = False
+    
     if rerank_method:
         results = rerank(query, results, method=rerank_method, limit=limit)
         reranked = True
-
+    
     return {
         "original_query": original_query,
         "enhanced_query": enhanced_query,
@@ -237,3 +239,4 @@ def rrf_search_command(
         "reranked": reranked,
         "results": results,
     }
+
